@@ -25,6 +25,7 @@ pub struct CookieStorage {
     version: u32,
     cookies_map: HashMap<String, Vec<ServoCookie>>,
     max_per_host: usize,
+    third_party_cookies_enabled: bool,
 }
 
 #[derive(Debug)]
@@ -39,6 +40,7 @@ impl CookieStorage {
             version: 1,
             cookies_map: HashMap::new(),
             max_per_host: max_cookies,
+            third_party_cookies_enabled: Default::default(),
         }
     }
 
@@ -142,8 +144,12 @@ impl CookieStorage {
         }
     }
 
+    pub fn set_third_party_cookies_enabled(&mut self, enabled: bool) {
+        self.third_party_cookies_enabled = enabled;
+    }
+
     // http://tools.ietf.org/html/rfc6265#section-5.3
-    pub fn push(&mut self, mut cookie: ServoCookie, url: &ServoUrl, source: CookieSource) {
+    pub fn push(&mut self, mut cookie: ServoCookie, url: &ServoUrl, source: CookieSource, webview_url: Option<ServoUrl>) {
         // https://www.ietf.org/id/draft-ietf-httpbis-cookie-alone-01.txt Step 1
         if cookie.cookie.secure().unwrap_or(false) && !url.is_secure_scheme() {
             return;
@@ -177,6 +183,19 @@ impl CookieStorage {
                 return;
             }
         }
+
+        println!("VALO>>>check url&webview_url; url={:?}", url);
+        println!("VALO>>>check url&webview_url; webview_url={:?}", webview_url);
+        if let Some(webview_url) = webview_url {
+            if let (Some(url), Some(webview_url)) = (&url.host_str(), &webview_url.host_str()) {
+                if url != webview_url && !self.third_party_cookies_enabled {
+                    println!("VALO>>>third party cookie; url={:?}", url);
+                    println!("VALO>>>third party cookie; webview_url={:?}", webview_url);
+                    return;
+                }
+            }
+        }
+
         cookies.push(cookie);
     }
 

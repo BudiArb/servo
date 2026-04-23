@@ -149,7 +149,7 @@ fn process_ws_response(
             if let Some(cookie) =
                 ServoCookie::from_cookie_string(s, resource_url, CookieSource::HTTP)
             {
-                jar.push(cookie, resource_url, CookieSource::HTTP);
+                jar.push(cookie, resource_url, CookieSource::HTTP, None);
             }
         }
     }

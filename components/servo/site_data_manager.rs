@@ -8,6 +8,7 @@ use log::warn;
 use net_traits::pub_domains::registered_domain_name;
 use net_traits::{ResourceThreads, SiteDescriptor};
 use rustc_hash::FxHashMap;
+// use servo_base::id::WebViewId;
 use servo_url::ServoUrl;
 use storage_traits::StorageThreads;
 use storage_traits::webstorage_thread::{OriginDescriptor, WebStorageType};
@@ -219,11 +220,20 @@ impl SiteDataManager {
     /// Returns `true` if the request to set the cookie is successfully sent.
     /// This call will block, such that any operations triggered after the
     /// call will use the provided cookie.
-    pub fn set_cookie_for_url(&self, url: Url, cookie: Cookie<'static>) {
+    pub fn set_cookie_for_url(&self, url: Url, cookie: Cookie<'static>, webview_url: Url) {
+        println!("VALO>>>SiteDataManager::set_cookie_for_url start");
         self.public_resource_threads.set_cookie_for_url_sync(
             url.into(),
             cookie,
             CookieSource::HTTP,
+            webview_url.into(),
         );
+    }
+
+    /// Sets permission to set third party cookie.
+    /// 
+    /// `true` means setting third party cookie is allowed.
+    pub fn set_third_party_cookie_enabled(&self, accept: bool) {
+        self.public_resource_threads.set_third_party_cookie_enabled(accept);
     }
 }

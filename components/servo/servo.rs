@@ -69,6 +69,7 @@ use servo_geometry::{
 };
 use servo_media::ServoMedia;
 use servo_media::player::context::GlContext;
+use servo_url::ServoUrl;
 use servo_wakelock::NoOpWakeLockProvider;
 use storage::new_storage_threads;
 use storage_traits::StorageThreads;
@@ -387,6 +388,13 @@ impl ServoInner {
                         .delegate()
                         .request_authentication(webview, authentication_request);
                 }
+            },
+            NetToEmbedderMsg::GetWebViewUrl(webview_id, response_sender) => {
+                let url = self
+                    .get_webview_handle(webview_id)
+                    .and_then(|webview| webview.url())
+                    .map(ServoUrl::from_url);
+                let _ = response_sender.send(url);
             },
         }
     }

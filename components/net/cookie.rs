@@ -123,8 +123,10 @@ impl ServoCookie {
 
         let url_host = request.host_str().unwrap_or("").to_owned();
 
+        println!("VALO>>>check domain");
         // Step 7. If the cookie-attribute-list contains an attribute with an attribute-name of "Domain":
         let mut domain = if let Some(domain) = cookie.domain() {
+            println!("VALO>>>dalam if domain = {:?}", domain);
             // 1. Let the domain-attribute be the attribute-value of the last attribute in the
             // cookie-attribute-list [..]
             // NOTE: This is done by the cookie crate
@@ -140,9 +142,12 @@ impl ServoCookie {
         // abort these steps and ignore the cookie entirely.
         // NOTE: (is this done by the cookies crate?)
 
+        println!("VALO>>>check is_pub_domain");
         // Step 9. If the user agent is configured to reject "public suffixes" and the domain-attribute
         // is a public suffix:
         if is_pub_domain(&domain) {
+            println!("VALO>>>dalam if is_pub_domain domain = {:?}", domain);
+            println!("VALO>>>dalam if is_pub_domain url_host = {:?}", url_host);
             // 1. If the domain-attribute is identical to the canonicalized request-host:
             if domain == url_host {
                 // 1. Let the domain-attribute be the empty string.
@@ -155,9 +160,12 @@ impl ServoCookie {
             }
         }
 
+        println!("VALO>>>check !domain.is_empty() domain = {:?}", domain);
         // Step 10. If the domain-attribute is non-empty:
         let host_only;
         if !domain.is_empty() {
+            println!("VALO>>>dalam if !domain.is_empty() domain = {:?}", domain);
+            println!("VALO>>>dalam if !domain.is_empty() url_host = {:?}", url_host);
             // 1. If the canonicalized request-host does not domain-match the domain-attribute:
             if !ServoCookie::domain_match(&url_host, &domain) {
                 // 1. Abort these steps and ignore the cookie entirely.
@@ -172,6 +180,7 @@ impl ServoCookie {
         }
         // Otherwise:
         else {
+            println!("VALO>>>dalam if domain.is_empty() url_host = {:?}", url_host);
             // 1. Set the cookie's host-only-flag to true.
             host_only = true;
 

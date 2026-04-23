@@ -5699,11 +5699,13 @@ impl DocumentMethods<crate::DomTypeHolder> for Document {
             vec![]
         };
 
+        // let webview_id = self.window.webview_id();
+
         let _ = self
             .window
             .as_global_scope()
             .resource_threads()
-            .send(SetCookiesForUrl(self.url(), cookies, NonHTTP));
+            .send(SetCookiesForUrl(self.url(), cookies, NonHTTP, self.url()));
         Ok(())
     }
 

@@ -496,33 +496,54 @@ impl ResourceChannelManager {
                     protocols,
                 )
             },
-            CoreResourceMsg::SetCookieForUrl(request, cookie, source, sender) => {
+            CoreResourceMsg::SetThirdPartyCookieEnabled(accept) => {
+                self.resource_manager.set_third_party_cookie_enabled(accept, http_state);
+            }
+            CoreResourceMsg::SetCookieForUrl(request, cookie, source, sender, webview_url) => {
+                // let webview_url = webview_id.and_then(|webview_id| {
+                //     let (sender, receiver) = tokio::sync::oneshot::channel();
+                //     http_state.embedder_proxy.send(NetToEmbedderMsg::GetWebViewUrl(webview_id, sender));
+                //     receiver.blocking_recv().ok().flatten()
+                // });
                 self.resource_manager.set_cookie_for_url(
                     &request,
                     cookie.into_inner().to_owned(),
                     source,
                     http_state,
+                    webview_url,
                 );
                 if let Some(sender) = sender {
                     let _ = sender.send(());
                 }
             },
-            CoreResourceMsg::SetCookiesForUrl(request, cookies, source) => {
+            CoreResourceMsg::SetCookiesForUrl(request, cookies, source, webview_url) => {
+                // let webview_url = webview_id.and_then(|webview_id| {
+                //     let (sender, receiver) = tokio::sync::oneshot::channel();
+                //     http_state.embedder_proxy.send(NetToEmbedderMsg::GetWebViewUrl(webview_id, sender));
+                //     receiver.blocking_recv().ok().flatten()
+                // });
                 for cookie in cookies {
                     self.resource_manager.set_cookie_for_url(
                         &request,
                         cookie.into_inner(),
                         source,
                         http_state,
+                        webview_url.clone(),
                     );
                 }
             },
-            CoreResourceMsg::SetCookieForUrlAsync(cookie_store_id, url, cookie, source) => {
+            CoreResourceMsg::SetCookieForUrlAsync(cookie_store_id, url, cookie, source, webview_url) => {
+                // let webview_url = webview_id.and_then(|webview_id| {
+                //     let (sender, receiver) = tokio::sync::oneshot::channel();
+                //     http_state.embedder_proxy.send(NetToEmbedderMsg::GetWebViewUrl(webview_id, sender));
+                //     receiver.blocking_recv().ok().flatten()
+                // });
                 self.resource_manager.set_cookie_for_url(
                     &url,
                     cookie.into_inner().to_owned(),
                     source,
                     http_state,
+                    webview_url,
                 );
                 self.send_cookie_response(cookie_store_id, CookieData::Set(Ok(())));
             },
@@ -711,17 +732,28 @@ impl CoreResourceManager {
         debug!("Exited CoreResourceManager");
     }
 
+    fn set_third_party_cookie_enabled(&mut self, accept: bool, http_state: &Arc<HttpState>) {
+        http_state.cookie_jar.write().set_third_party_cookies_enabled(accept);
+    }
+
     fn set_cookie_for_url(
         &mut self,
         request: &ServoUrl,
         cookie: Cookie<'static>,
         source: CookieSource,
         http_state: &Arc<HttpState>,
+        webview_url: ServoUrl,
     ) {
+        println!("VALO>>>CoreResourceManager::set_cookie_for_url start");
+        println!("VALO>>>CoreResourceManager::set_cookie_for_url; request = {:?}", request);
+        println!("VALO>>>CoreResourceManager::set_cookie_for_url; cookie = {:?}", cookie);
+        println!("VALO>>>CoreResourceManager::set_cookie_for_url; webview_url = {:?}", webview_url);
         if let Some(cookie) = ServoCookie::new_wrapped(cookie, request, source) {
+            println!("VALO>>>CoreResourceManager::set_cookie_for_url dalam if some; cookie = {:?}", cookie);
             let mut cookie_jar = http_state.cookie_jar.write();
-            cookie_jar.push(cookie, request, source)
+            cookie_jar.push(cookie, request, source, Some(webview_url))
         }
+        // println!("VALO>>>CoreResourceManager::set_cookie_for_url end");
     }
 
     fn fetch<Target: 'static + FetchTaskTarget + Send>(

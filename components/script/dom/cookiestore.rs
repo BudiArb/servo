@@ -478,6 +478,7 @@ impl CookieStoreMethods<crate::DomTypeHolder> for CookieStore {
                 creation_url.clone(),
                 Serde(cookie.into_owned()),
                 NonHTTP,
+                creation_url.clone(),
             ));
         if res.is_err() {
             error!("Failed to send cookiestore message to resource threads");
@@ -528,6 +529,7 @@ impl CookieStoreMethods<crate::DomTypeHolder> for CookieStore {
                 creation_url.clone(),
                 Serde(cookie.into_owned()),
                 NonHTTP,
+                creation_url.clone(),
             ));
         if res.is_err() {
             error!("Failed to send cookiestore message to resource threads");

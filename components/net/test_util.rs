@@ -194,7 +194,7 @@ where
             async move { TcpListener::from_std(listener).unwrap() },
         );
 
-    let url_string = format!("http://localhost:{}", listener.local_addr().unwrap().port());
+    let url_string = format!("https://localhost:{}", listener.local_addr().unwrap().port());
     let url = UrlWithBlobClaim::new(ServoUrl::parse(&url_string).unwrap(), None);
 
     let cert_path = Path::new("../../resources/self_signed_certificate_for_testing.crt")

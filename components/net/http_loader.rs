@@ -335,22 +335,27 @@ fn set_request_cookies(
     headers: &mut HeaderMap,
     cookie_jar: &RwLock<CookieStorage>,
 ) {
+    println!("VALO>>>set_request_cookies start url={:?}", url);
     let mut cookie_jar = cookie_jar.write();
     cookie_jar.remove_expired_cookies_for_url(url);
+    println!("VALO>>>set_request_cookies after remove_expired");
     if let Some(cookie_list) = cookie_jar.cookies_for_url(url, CookieSource::HTTP) {
+        println!("VALO>>>set_request_cookies cookie_list={:?}", cookie_list);
         headers.insert(
             header::COOKIE,
             HeaderValue::from_bytes(cookie_list.as_bytes()).unwrap(),
         );
+    } else {
+        println!("VALO>>>set_request_cookies no cookies found");
     }
 }
 
-fn set_cookie_for_url(cookie_jar: &RwLock<CookieStorage>, request: &ServoUrl, cookie_val: &str) {
+fn set_cookie_for_url(cookie_jar: &RwLock<CookieStorage>, request: &ServoUrl, cookie_val: &str, webview_url: Option<ServoUrl>) {
     let mut cookie_jar = cookie_jar.write();
     let source = CookieSource::HTTP;
 
     if let Some(cookie) = ServoCookie::from_cookie_string(cookie_val, request, source) {
-        cookie_jar.push(cookie, request, source);
+        cookie_jar.push(cookie, request, source, webview_url);
     }
 }
 
@@ -358,16 +363,21 @@ fn set_cookies_from_headers(
     url: &ServoUrl,
     headers: &HeaderMap,
     cookie_jar: &RwLock<CookieStorage>,
+    webview_url: Option<ServoUrl>,
 ) {
+    // println!("VALO>>>set_cookies_from_headers start");
     for cookie in headers.get_all(header::SET_COOKIE) {
         let cookie_bytes = cookie.as_bytes();
         if !ServoCookie::is_valid_name_or_value(cookie_bytes) {
             continue;
         }
+        println!("VALO>>>set_cookies_from_headers cookie={:?}", cookie);
         if let Ok(cookie_str) = std::str::from_utf8(cookie_bytes) {
-            set_cookie_for_url(cookie_jar, url, cookie_str);
+            println!("VALO>>>set_cookies_from_headers cookie_str={:?}", cookie_str);
+            set_cookie_for_url(cookie_jar, url, cookie_str, webview_url.clone());
         }
     }
+    // println!("VALO>>>set_cookies_from_headers end");
 }
 
 fn build_tls_security_info(handshake: &TlsHandshakeInfo, hsts_enabled: bool) -> TlsSecurityInfo {
@@ -2422,7 +2432,16 @@ async fn http_network_fetch(
     // TODO this step isn't possible yet
     // Step 15
     if credentials_flag {
-        set_cookies_from_headers(&url, &response.headers, &context.state.cookie_jar);
+        let webview_url = match request.target_webview_id {
+            Some(webview_id) => {
+                let (sender, receiver) = tokio::sync::oneshot::channel();
+                context.state.embedder_proxy
+                    .send(NetToEmbedderMsg::GetWebViewUrl(webview_id, sender));
+                receiver.await.ok().flatten()
+            },
+            None => None,
+        };
+        set_cookies_from_headers(&url, &response.headers, &context.state.cookie_jar, webview_url);
     }
     context
         .state

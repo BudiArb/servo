@@ -13,10 +13,11 @@ use http::HeaderValue;
 use http_body_util::combinators::BoxBody;
 use hyper::body::{Bytes, Incoming};
 use hyper::{Request as HyperRequest, Response as HyperResponse};
-use net::test_util::{Server, make_body, make_server, replace_host_table};
+use net::test_util::{Server, make_body, make_server, make_ssl_server, replace_host_table};
 use net_traits::CookieSource;
 use net_traits::blob_url_store::UrlWithBlobClaim;
 use servo::{JSValue, Servo, ServoUrl, SiteData, StorageType, WebView, WebViewBuilder};
+use servo_config::opts::Opts;
 
 use crate::common::{ServoTest, WebViewDelegateImpl, evaluate_javascript};
 
@@ -683,7 +684,7 @@ fn test_set_cookie() {
     servo_test
         .servo()
         .site_data_manager()
-        .set_cookie_for_url(page_url.clone(), cookie);
+        .set_cookie_for_url(page_url.clone(), cookie, page_url.clone());
 
     // Verify it is returned by get_cookies_for_url.
     // Don't need sync call because set and get messages are processed in order.
@@ -691,6 +692,7 @@ fn test_set_cookie() {
         .servo()
         .site_data_manager()
         .cookies_for_url(page_url.clone(), CookieSource::HTTP);
+    println!("cookies akhir set: {:?}", cookies);
     assert_eq!(cookies.len(), 1);
     assert_eq!(cookies[0].name(), "foo");
     assert_eq!(cookies[0].value(), "bar");
@@ -708,4 +710,128 @@ fn test_set_cookie() {
         *received_cookie.lock().unwrap(),
         Some("foo=bar".to_string())
     );
+}
+
+#[test]
+fn test_set_third_party_cookie() {
+    let servo_test = ServoTest::new_with_builder(|builder| {
+        builder.opts(Opts {
+            ignore_certificate_errors: true,
+            ..Default::default()
+        })
+    });
+
+    let received_cookie_a: Arc<Mutex<Option<String>>> = Arc::new(Mutex::new(None));
+    let received_cookie_clone_a = received_cookie_a.clone();
+
+    // Serve a minimal page; on the second load, capture the Cookie request header.
+    let handler_a =
+        move |req: HyperRequest<Incoming>,
+              response: &mut HyperResponse<BoxBody<Bytes, hyper::Error>>| {
+            if let Some(cookie) = req.headers().get(http::header::COOKIE) {
+                *received_cookie_clone_a.lock().unwrap() = Some(cookie.to_str().unwrap().to_string());
+            }
+            *response.body_mut() = make_body(b"<!DOCTYPE html><p>hi</p>".to_vec());
+        };
+
+    let received_cookie_b: Arc<Mutex<Option<String>>> = Arc::new(Mutex::new(None));
+    let received_cookie_clone_b = received_cookie_b.clone();
+
+    let handler_b =
+        move |req: HyperRequest<Incoming>,
+              response: &mut HyperResponse<BoxBody<Bytes, hyper::Error>>| {
+            if let Some(cookie) = req.headers().get(http::header::COOKIE) {
+                *received_cookie_clone_b.lock().unwrap() = Some(cookie.to_str().unwrap().to_string());
+            }
+            *response.body_mut() = make_body(b"<!DOCTYPE html><p>hi</p>".to_vec());
+        };
+    
+    let (server_a, url_a) = make_ssl_server(handler_a);
+    let (server_b, url_b) = make_ssl_server(handler_b);
+
+    let mut host_table = HashMap::new();
+    host_table.insert("www.first-party.com".to_string(), "127.0.0.1".parse().unwrap());
+    host_table.insert("www.third-party.com".to_string(), "127.0.0.1".parse().unwrap());
+    replace_host_table(host_table);
+
+    let page_url = ServoUrl::parse(&format!("https://www.first-party.com:{}/", url_a.port().unwrap())).unwrap();
+    let third_party_url = ServoUrl::parse(&format!("https://www.third-party.com:{}/", url_b.port().unwrap())).unwrap();
+    let third_party_url_url = third_party_url.clone().into_url();
+
+    let delegate = Rc::new(WebViewDelegateImpl::default());
+    let delegate_clone = delegate.clone();
+    let webview = WebViewBuilder::new(servo_test.servo(), servo_test.rendering_context.clone())
+        .delegate(delegate.clone())
+        .url(page_url.clone().into_url())
+        .build();
+
+    servo_test.spin(move || !delegate.load_status_changed.get());
+
+    // Disable third party cookie
+    servo_test
+        .servo()
+        .site_data_manager()
+        .set_third_party_cookie_enabled(false);
+
+    // Set a cookie for third-party domain (this should be blocked as a third-party cookie)
+    let third_party_cookie = Cookie::build(("foo", "bar"))
+        .path("/")
+        .same_site(cookie::SameSite::None)
+        .secure(true)
+        .build();
+    servo_test
+        .servo()
+        .site_data_manager()
+        .set_cookie_for_url(third_party_url_url.clone(), third_party_cookie, page_url.clone().into_url());
+
+    // Verify the cookie is not returned by get_cookies_for_url for third-party domain.
+    let cookies = servo_test
+        .servo()
+        .site_data_manager()
+        .cookies_for_url(third_party_url_url.clone(), CookieSource::HTTP);
+    println!("VALO>>>cookies hasil = {:?}", cookies.len());
+    assert_eq!(cookies.len(), 0);
+
+    // Enable third party cookie
+    servo_test
+        .servo()
+        .site_data_manager()
+        .set_third_party_cookie_enabled(true);
+
+    // Set a cookie for third-party domain again (should work now)
+    let third_party_cookie = Cookie::build(("foo", "bar"))
+        .path("/")
+        .same_site(cookie::SameSite::None)
+        .secure(true)
+        .build();
+    servo_test
+        .servo()
+        .site_data_manager()
+        .set_cookie_for_url(third_party_url_url.clone(), third_party_cookie, page_url.clone().into_url());
+
+    // Verify it is returned by get_cookies_for_url for third-party domain.
+    let cookies = servo_test
+        .servo()
+        .site_data_manager()
+        .cookies_for_url(third_party_url_url.clone(), CookieSource::HTTP);
+    println!("cookies akhir: {:?}", cookies);
+    assert_eq!(cookies.len(), 1);
+    assert_eq!(cookies[0].name(), "foo");
+    assert_eq!(cookies[0].value(), "bar");
+
+    // Load the third-party page and verify the cookie is sent in the request.
+    delegate_clone.reset();
+    delegate_clone.load_status_changed.set(false);
+    webview.load(third_party_url.into_url());
+    let delegate_clone2 = delegate_clone.clone();
+    servo_test.spin(move || !delegate_clone2.load_status_changed.get());
+
+    let _ = server_a.close();
+    let _ = server_b.close();
+
+    assert_eq!(
+        *received_cookie_b.lock().unwrap(),
+        Some("foo=bar".to_string())
+    );
+    //
 }

@@ -33,4 +33,8 @@ pub enum NetToEmbedderMsg {
         bool, /* for proxy */
         TokioOneshotSender<Option<AuthenticationResponse>>,
     ),
+    GetWebViewUrl(
+        WebViewId,
+        TokioOneshotSender<Option<ServoUrl>>,
+    ),
 }
