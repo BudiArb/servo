@@ -37,6 +37,8 @@ pub enum EmbedderControlRequest {
     SelectElement(SelectElementRequest),
     /// Indicates that the user has activated a `<input type=color>` element.
     ColorPicker(RgbColor),
+    /// Indicates that the user has activated a `<input type=date>` element.
+    DatePicker(DatePickerRequest),
     /// Indicates that the user has activated a `<input type=file>` element.
     FilePicker(FilePickerRequest),
     /// Indicates that the the user has activated a text or input control that should show
@@ -44,6 +46,39 @@ pub enum EmbedderControlRequest {
     InputMethod(InputMethodRequest),
     /// Indicates that the the user has triggered the display of a context menu.
     ContextMenu(ContextMenuRequest),
+}
+
+/// A calendar date without a time or timezone, used by the date picker
+/// embedder control.
+#[derive(Clone, Copy, Debug, PartialEq, Deserialize, Serialize)]
+pub struct DateValue {
+    pub year: i32,
+    /// The month, from 1 (January) to 12 (December).
+    pub month: u8,
+    /// The day of the month, from 1 to 31.
+    pub day: u8,
+}
+
+/// Request to present a calendar picker to the user for a `<input type=date>`
+/// element.
+#[derive(Debug, Deserialize, Serialize)]
+pub struct DatePickerRequest {
+    /// The date that is currently selected by the element, if any. The picker
+    /// should highlight it and initially display its month.
+    pub selected_date: Option<DateValue>,
+}
+
+/// The outcome of a date picker presented to the user.
+#[derive(Debug, Deserialize, Serialize)]
+pub enum DatePickerResponse {
+    /// The picker was dismissed without the user making a new selection; the
+    /// element's value should be left unchanged.
+    Dismissed,
+    /// The user cleared the selected date; the element's value should be
+    /// emptied.
+    Cleared,
+    /// The user selected a date that should become the element's new value.
+    Selected(DateValue),
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -173,6 +208,7 @@ pub struct SelectElementRequest {
 pub enum EmbedderControlResponse {
     SelectElement(Vec<usize>),
     ColorPicker(Option<RgbColor>),
+    DatePicker(DatePickerResponse),
     FilePicker(Option<Vec<SelectedFile>>),
     ContextMenu(Option<ContextMenuAction>),
 }

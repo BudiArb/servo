@@ -27,7 +27,9 @@ use crate::dom::html::form_controls::input_type::checkbox_input_type::{
 use crate::dom::html::form_controls::input_type::color_input_type::{
     ColorInputActivation, ColorInputType,
 };
-use crate::dom::html::form_controls::input_type::date_input_type::DateInputType;
+use crate::dom::html::form_controls::input_type::date_input_type::{
+    DateInputActivation, DateInputType,
+};
 use crate::dom::html::form_controls::input_type::datetime_local_input_type::DatetimeLocalInputType;
 use crate::dom::html::form_controls::input_type::email_input_type::EmailInputType;
 use crate::dom::html::form_controls::input_type::file_input_type::{
@@ -161,6 +163,7 @@ pub(crate) enum InputActivationType {
     Button(ButtonInputActivation),
     Checkbox(CheckboxInputActivation),
     Color(ColorInputActivation),
+    Date(DateInputActivation),
     File(FileInputActivation),
     Image(ImageInputActivation),
     Radio(RadioInputActivation),
@@ -174,6 +177,7 @@ impl InputActivationType {
             InputType::Button(_) => Some(Self::Button(ButtonInputActivation)),
             InputType::Checkbox(_) => Some(Self::Checkbox(CheckboxInputActivation)),
             InputType::Color(_) => Some(Self::Color(ColorInputActivation)),
+            InputType::Date(_) => Some(Self::Date(DateInputActivation)),
             InputType::File(_) => Some(Self::File(FileInputActivation)),
             InputType::Image(_) => Some(Self::Image(ImageInputActivation)),
             InputType::Radio(_) => Some(Self::Radio(RadioInputActivation)),
@@ -188,6 +192,7 @@ impl InputActivationType {
             Self::Button(input_type) => input_type as &dyn SpecificInputActivationType,
             Self::Checkbox(input_type) => input_type as &dyn SpecificInputActivationType,
             Self::Color(input_type) => input_type as &dyn SpecificInputActivationType,
+            Self::Date(input_type) => input_type as &dyn SpecificInputActivationType,
             Self::File(input_type) => input_type as &dyn SpecificInputActivationType,
             Self::Image(input_type) => input_type as &dyn SpecificInputActivationType,
             Self::Radio(input_type) => input_type as &dyn SpecificInputActivationType,

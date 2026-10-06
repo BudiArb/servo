@@ -43,8 +43,8 @@ use crate::responders::AutomaticResponder;
 use crate::servo::PendingHandledInputEvent;
 use crate::webview_delegate::{CreateNewWebViewRequest, DefaultWebViewDelegate, WebViewDelegate};
 use crate::{
-    ColorPicker, ContextMenu, EmbedderControl, InputMethodControl, SelectElement, Servo,
-    UserContentManager, WebRenderDebugOption,
+    ColorPicker, ContextMenu, DatePicker, EmbedderControl, InputMethodControl, SelectElement,
+    Servo, UserContentManager, WebRenderDebugOption,
 };
 
 pub(crate) const MINIMUM_WEBVIEW_SIZE: Size2D<i32, DevicePixel> = Size2D::new(1, 1);
@@ -811,6 +811,15 @@ impl WebView {
                 EmbedderControl::ColorPicker(ColorPicker {
                     id: control_id,
                     current_color: Some(current_color),
+                    position,
+                    constellation_proxy,
+                    response_sent: false,
+                })
+            },
+            EmbedderControlRequest::DatePicker(date_picker_request) => {
+                EmbedderControl::DatePicker(DatePicker {
+                    id: control_id,
+                    selected_date: date_picker_request.selected_date,
                     position,
                     constellation_proxy,
                     response_sent: false,

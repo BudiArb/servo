@@ -1079,6 +1079,15 @@ impl PlatformWindow for HeadedWindow {
                     Dialog::new_color_picker_dialog(color_picker, offset),
                 );
             },
+            EmbedderControl::DatePicker(date_picker) => {
+                // FIXME: Reading the toolbar height is needed here to properly position the select dialog.
+                // But if the toolbar height changes while the dialog is open then the position won't be updated
+                let offset = self.gui.borrow().toolbar_height();
+                self.add_dialog(
+                    webview_id,
+                    Dialog::new_date_picker_dialog(date_picker, offset),
+                );
+            },
             EmbedderControl::InputMethod(input_method_control) => {
                 self.show_ime(control_id, input_method_control);
             },

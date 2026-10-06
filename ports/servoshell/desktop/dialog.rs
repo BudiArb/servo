@@ -12,14 +12,38 @@ use euclid::Length;
 use log::{error, warn};
 use servo::{
     AlertDialog, AuthenticationRequest, BluetoothDeviceSelectionRequest, ColorPicker,
-    ConfirmDialog, ContextMenu, ContextMenuItem, DeviceIndependentPixel, EmbedderControlId,
-    FilePicker, PermissionRequest, PromptDialog, RgbColor, SelectElement, SelectElementOption,
-    SelectElementOptionOrOptgroup, SimpleDialog,
+    ConfirmDialog, ContextMenu, ContextMenuItem, DatePicker, DateValue, DeviceIndependentPixel,
+    EmbedderControlId, FilePicker, PermissionRequest, PromptDialog, RgbColor, SelectElement,
+    SelectElementOption, SelectElementOptionOrOptgroup, SimpleDialog,
 };
+use time::Month;
 
 /// The minimum width of many UI elements including dialog boxes and menus,
 /// for the sake of consistency.
 const MINIMUM_UI_ELEMENT_WIDTH: f32 = 150.0;
+
+/// The minimum width of the calendar shown by the date picker dialog, which
+/// needs to fit seven day columns.
+const DATE_PICKER_MINIMUM_WIDTH: f32 = 230.0;
+
+/// English month names, indexed by `time::Month` minus one.
+const MONTH_NAMES: [&str; 12] = [
+    "January",
+    "February",
+    "March",
+    "April",
+    "May",
+    "June",
+    "July",
+    "August",
+    "September",
+    "October",
+    "November",
+    "December",
+];
+
+/// Weekday column headers for the date picker, starting on Sunday.
+const WEEKDAY_LABELS: [&str; 7] = ["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"];
 
 #[expect(clippy::large_enum_variant)]
 pub enum Dialog {
@@ -51,6 +75,12 @@ pub enum Dialog {
         current_color: egui::Color32,
         maybe_prompt: Option<ColorPicker>,
         toolbar_offset: Length<f32, DeviceIndependentPixel>,
+    },
+    DatePicker {
+        maybe_prompt: Option<DatePicker>,
+        toolbar_offset: Length<f32, DeviceIndependentPixel>,
+        /// The month that is currently displayed by the calendar.
+        displayed_month: (i32, Month),
     },
     ContextMenu {
         menu: Option<ContextMenu>,
@@ -138,6 +168,27 @@ impl Dialog {
             current_color,
             maybe_prompt: Some(prompt),
             toolbar_offset,
+        }
+    }
+
+    pub fn new_date_picker_dialog(
+        prompt: DatePicker,
+        toolbar_offset: Length<f32, DeviceIndependentPixel>,
+    ) -> Self {
+        let today = time::OffsetDateTime::now_utc().date();
+        let displayed_month = prompt
+            .current_date()
+            .map(|date| {
+                (
+                    date.year,
+                    Month::try_from(date.month).unwrap_or(today.month()),
+                )
+            })
+            .unwrap_or((today.year(), today.month()));
+        Dialog::DatePicker {
+            maybe_prompt: Some(prompt),
+            toolbar_offset,
+            displayed_month,
         }
     }
 
@@ -640,6 +691,150 @@ impl Dialog {
 
                 is_open
             },
+            Dialog::DatePicker {
+                maybe_prompt,
+                toolbar_offset,
+                displayed_month,
+            } => {
+                let Some(prompt) = maybe_prompt else {
+                    // Prompt was dismissed, so the dialog should be closed too.
+                    return false;
+                };
+                let mut is_open = true;
+                // The action to resolve the prompt with, if any: `None` means the picker is
+                // dismissed without a change, `Some(None)` clears the value, and
+                // `Some(Some(date))` selects a date.
+                let mut action: Option<Option<DateValue>> = None;
+
+                let current_date = prompt.current_date();
+                let mut position = prompt.position();
+                position.min.y += toolbar_offset.0 as i32;
+                position.max.y += toolbar_offset.0 as i32;
+                let area = egui::Area::new(egui::Id::new("date-picker"))
+                    .fixed_pos(egui::pos2(position.min.x as f32, position.max.y as f32));
+
+                let modal = egui::Modal::new("date_picker".into()).area(area);
+                let backdrop_response = modal
+                    .show(ctx, |ui| {
+                        ui.set_min_width(DATE_PICKER_MINIMUM_WIDTH);
+
+                        let (year, month) = *displayed_month;
+
+                        // Header with the displayed month and buttons to navigate to the
+                        // previous and next month. The label must not be centered with
+                        // `ui.with_layout` here: a layout that fills the available width
+                        // makes the auto-sized popup area grow on every frame, since the
+                        // area size of a frame is derived from the minimum size of the
+                        // previous one.
+                        ui.horizontal(|ui| {
+                            if ui.button("‹").clicked() {
+                                *displayed_month = previous_month(year, month);
+                            }
+                            ui.label(
+                                RichText::new(format!(
+                                    "{} {}",
+                                    MONTH_NAMES[(u8::from(month) - 1) as usize],
+                                    year
+                                ))
+                                .strong(),
+                            );
+                            if ui.button("›").clicked() {
+                                *displayed_month = next_month(year, month);
+                            }
+                        });
+
+                        ui.add_space(4.0);
+
+                        // The day grid: a row of weekday headers followed by one row per
+                        // week, with empty cells before the first day of the month.
+                        let days_in_month = time::util::days_in_month(month, year);
+                        let first_weekday = time::Date::from_calendar_date(year, month, 1)
+                            .map(|date| date.weekday().number_days_from_sunday())
+                            .unwrap_or(0);
+                        let today = time::OffsetDateTime::now_utc().date();
+
+                        egui::Grid::new("date-picker-days").show(ui, |ui| {
+                            for weekday_label in WEEKDAY_LABELS {
+                                ui.label(RichText::new(weekday_label).weak());
+                            }
+                            ui.end_row();
+
+                            for _ in 0..first_weekday {
+                                ui.label("");
+                            }
+
+                            for day in 1..=days_in_month {
+                                let is_today = (year, u8::from(month), day)
+                                    == (today.year(), u8::from(today.month()), today.day());
+                                let is_selected = current_date.is_some_and(|date| {
+                                    (date.year, date.month, date.day)
+                                        == (year, u8::from(month), day)
+                                });
+
+                                let mut button = egui::Button::new(RichText::new(day.to_string()))
+                                    .min_size(Vec2::new(28.0, 20.0));
+                                if is_selected {
+                                    button = button.fill(ui.visuals().selection.bg_fill);
+                                }
+                                if is_today {
+                                    button = button
+                                        .stroke(Stroke::new(1.0, ui.visuals().strong_text_color()));
+                                }
+
+                                if ui.add(button).clicked() {
+                                    action = Some(Some(DateValue {
+                                        year,
+                                        month: u8::from(month),
+                                        day,
+                                    }));
+                                    is_open = false;
+                                }
+
+                                if (first_weekday as u32 + day as u32 - 1) % 7 == 6 {
+                                    ui.end_row();
+                                }
+                            }
+                        });
+
+                        ui.add_space(4.0);
+
+                        ui.horizontal(|ui| {
+                            if ui.button("Today").clicked() {
+                                action = Some(Some(DateValue {
+                                    year: today.year(),
+                                    month: u8::from(today.month()),
+                                    day: today.day(),
+                                }));
+                                is_open = false;
+                            }
+                            if ui.button("Clear").clicked() {
+                                action = Some(None);
+                                is_open = false;
+                            }
+                            if ui.input(|i| i.key_pressed(egui::Key::Escape)) {
+                                is_open = false;
+                            }
+                        });
+                    })
+                    .backdrop_response;
+
+                // FIXME: Doesn't update until you move your mouse or press a key - why?
+                if backdrop_response.clicked() {
+                    is_open = false;
+                }
+
+                if !is_open {
+                    let mut prompt = maybe_prompt.take().unwrap();
+                    if let Some(selection) = action {
+                        prompt.select(selection);
+                        prompt.submit();
+                    }
+                    // Without an action the prompt is simply dropped, which dismisses it
+                    // and leaves the value of the element unchanged.
+                }
+
+                is_open
+            },
             Dialog::ContextMenu {
                 menu,
                 toolbar_offset,
@@ -736,6 +931,9 @@ impl Dialog {
             Dialog::ColorPicker { maybe_prompt, .. } => {
                 maybe_prompt.as_ref().map(|element| element.id())
             },
+            Dialog::DatePicker { maybe_prompt, .. } => {
+                maybe_prompt.as_ref().map(|element| element.id())
+            },
             Dialog::ContextMenu { menu, .. } => menu.as_ref().map(|menu| menu.id()),
             _ => None,
         }
@@ -760,4 +958,39 @@ fn make_dialog_label(message: &str, ui: &mut egui::Ui, input_text: Option<&mut S
         frame.content_ui.text_edit_singleline(input_text);
     }
     frame.end(ui);
+}
+
+fn previous_month(year: i32, month: Month) -> (i32, Month) {
+    match month {
+        Month::January => (year - 1, Month::December),
+        month => (year, month.previous()),
+    }
+}
+
+fn next_month(year: i32, month: Month) -> (i32, Month) {
+    match month {
+        Month::December => (year + 1, Month::January),
+        month => (year, month.next()),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use time::Month;
+
+    #[test]
+    fn month_navigation_rolls_over_at_year_boundaries() {
+        assert_eq!(
+            super::previous_month(2026, Month::January),
+            (2025, Month::December)
+        );
+        assert_eq!(
+            super::next_month(2026, Month::December),
+            (2027, Month::January)
+        );
+        assert_eq!(
+            super::next_month(2026, Month::February),
+            (2026, Month::March)
+        );
+    }
 }

@@ -6,7 +6,9 @@ use std::cell::{Cell, RefCell, RefMut};
 use std::{f64, ptr};
 
 use dom_struct::dom_struct;
-use embedder_traits::{EmbedderControlRequest, InputMethodRequest, RgbColor, SelectedFile};
+use embedder_traits::{
+    DatePickerResponse, EmbedderControlRequest, InputMethodRequest, RgbColor, SelectedFile,
+};
 use encoding_rs::Encoding;
 use html5ever::{LocalName, Prefix, local_name};
 use js::context::{JSContext, NoGC};
@@ -2026,6 +2028,16 @@ impl HTMLInputElement {
     ) {
         if let InputType::Color(ref color_input_type) = *self.input_type() {
             color_input_type.handle_color_picker_response(cx, self, response)
+        }
+    }
+
+    pub(crate) fn handle_date_picker_response(
+        &self,
+        cx: &mut JSContext,
+        response: DatePickerResponse,
+    ) {
+        if let InputType::Date(ref date_input_type) = *self.input_type() {
+            date_input_type.handle_date_picker_response(cx, self, response)
         }
     }
 

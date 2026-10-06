@@ -9831,6 +9831,7 @@ dependencies = [
  "servo-webdriver-server",
  "signal-hook-registry",
  "surfman",
+ "time",
  "tokio",
  "tracing",
  "tracing-perfetto",

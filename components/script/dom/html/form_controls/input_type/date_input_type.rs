@@ -2,19 +2,51 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
 
+use embedder_traits::{DatePickerRequest, DatePickerResponse, DateValue, EmbedderControlRequest};
 use js::context::JSContext;
 use script_bindings::cell::DomRefCell;
+use script_bindings::codegen::GenericBindings::HTMLInputElementBinding::HTMLInputElementMethods;
+use script_bindings::root::{Dom, DomRoot};
 use time::OffsetDateTime;
 
+use crate::dom::bindings::inheritance::Castable;
 use crate::dom::bindings::str::{DOMString, FromInputValueString, ToInputValueString};
+use crate::dom::document_embedder_controls::ControlElement;
+use crate::dom::event::Event;
+use crate::dom::eventtarget::EventTarget;
 use crate::dom::html::form_controls::htmlinputelement::HTMLInputElement;
-use crate::dom::html::form_controls::input_type::SpecificInputType;
 use crate::dom::html::form_controls::input_type::text_input_widget::TextInputWidget;
+use crate::dom::html::form_controls::input_type::{SpecificInputActivationType, SpecificInputType};
+use crate::dom::htmlformelement::HTMLFormElement;
+use crate::dom::node::{Node, NodeTraits, UnbindContext};
 
 #[derive(Default, JSTraceable, MallocSizeOf, PartialEq)]
 #[cfg_attr(crown, crown::unrooted_must_root_lint::must_root)]
 pub(crate) struct DateInputType {
     text_input_widget: DomRefCell<TextInputWidget>,
+}
+
+#[derive(Clone, Copy)]
+pub(crate) struct DateInputActivation;
+
+impl DateInputType {
+    pub(crate) fn handle_date_picker_response(
+        &self,
+        cx: &mut JSContext,
+        input: &HTMLInputElement,
+        response: DatePickerResponse,
+    ) {
+        let value = match response {
+            DatePickerResponse::Dismissed => return,
+            DatePickerResponse::Cleared => DOMString::new(),
+            DatePickerResponse::Selected(date) => date_value_to_string(date),
+        };
+        let _ = input.SetValue(cx, value);
+    }
+}
+
+fn date_value_to_string(date: DateValue) -> DOMString {
+    format!("{:04}-{:02}-{:02}", date.year, date.month, date.day).into()
 }
 
 impl SpecificInputType for DateInputType {
@@ -67,6 +99,26 @@ impl SpecificInputType for DateInputType {
         !value.str().is_valid_date_string()
     }
 
+    fn show_the_picker_if_applicable(&self, input: &HTMLInputElement) {
+        let selected_date = input
+            .Value()
+            .str()
+            .parse_date_string()
+            .map(|date_time| DateValue {
+                year: date_time.year(),
+                month: u8::from(date_time.month()),
+                day: date_time.day(),
+            });
+        input
+            .owner_document()
+            .embedder_controls()
+            .show_embedder_control(
+                ControlElement::DateInput(Dom::from_ref(input)),
+                EmbedderControlRequest::DatePicker(DatePickerRequest { selected_date }),
+                None,
+            );
+    }
+
     fn update_shadow_tree(&self, cx: &mut JSContext, input: &HTMLInputElement) {
         self.text_input_widget
             .borrow()
@@ -77,5 +129,30 @@ impl SpecificInputType for DateInputType {
         self.text_input_widget
             .borrow()
             .update_placeholder_contents(cx, input)
+    }
+
+    fn unbind_from_tree(
+        &self,
+        _cx: &mut JSContext,
+        input: &HTMLInputElement,
+        _form_owner: Option<DomRoot<HTMLFormElement>>,
+        _context: &UnbindContext,
+    ) {
+        input
+            .owner_document()
+            .embedder_controls()
+            .hide_embedder_control(input.upcast());
+    }
+}
+
+impl SpecificInputActivationType for DateInputActivation {
+    fn activation_behavior(
+        &self,
+        _cx: &mut JSContext,
+        input: &HTMLInputElement,
+        _event: &Event,
+        _target: &EventTarget,
+    ) {
+        input.show_the_picker_if_applicable();
     }
 }

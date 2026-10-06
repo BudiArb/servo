@@ -8,11 +8,12 @@ use std::rc::Rc;
 use embedder_traits::{
     AlertResponse, AllowOrDeny, AuthenticationResponse, BluetoothDeviceDescription,
     ConfirmResponse, ConsoleLogLevel, ContextMenuAction, ContextMenuElementInformation,
-    ContextMenuItem, Cursor, EmbedderControlId, EmbedderControlResponse, FilePickerRequest,
-    FilterPattern, InputEventId, InputEventResult, InputMethodType, LoadStatus, MediaSessionEvent,
-    NewWebViewDetails, Notification, PermissionFeature, PromptResponse, RgbColor, ScreenGeometry,
-    SelectElementOptionOrOptgroup, SelectElementRequest, SimpleDialogRequest, TraversalId,
-    WebResourceRequest, WebResourceResponse, WebResourceResponseMsg,
+    ContextMenuItem, Cursor, DatePickerRequest, DatePickerResponse, DateValue, EmbedderControlId,
+    EmbedderControlResponse, FilePickerRequest, FilterPattern, InputEventId, InputEventResult,
+    InputMethodType, LoadStatus, MediaSessionEvent, NewWebViewDetails, Notification,
+    PermissionFeature, PromptResponse, RgbColor, ScreenGeometry, SelectElementOptionOrOptgroup,
+    SelectElementRequest, SimpleDialogRequest, TraversalId, WebResourceRequest,
+    WebResourceResponse, WebResourceResponseMsg,
 };
 use paint_api::rendering_context::RenderingContext;
 use servo_base::generic_channel::{GenericCallback, GenericSender, SendError};
@@ -342,6 +343,8 @@ pub enum EmbedderControl {
     SelectElement(SelectElement),
     /// The picker of a `<input type=color>` element.
     ColorPicker(ColorPicker),
+    /// The picker of a `<input type=date>` element.
+    DatePicker(DatePicker),
     /// The picker of a `<input type=file>` element.
     FilePicker(FilePicker),
     /// Request to present an input method (IME) interface to the user when an
@@ -364,6 +367,7 @@ impl EmbedderControl {
         match self {
             EmbedderControl::SelectElement(select_element) => select_element.id,
             EmbedderControl::ColorPicker(color_picker) => color_picker.id,
+            EmbedderControl::DatePicker(date_picker) => date_picker.id,
             EmbedderControl::FilePicker(file_picker) => file_picker.id,
             EmbedderControl::InputMethod(input_method) => input_method.id,
             EmbedderControl::SimpleDialog(simple_dialog) => simple_dialog.id(),
@@ -563,6 +567,69 @@ impl Drop for ColorPicker {
                 .send(EmbedderToConstellationMessage::EmbedderControlResponse(
                     self.id,
                     EmbedderControlResponse::ColorPicker(self.current_color),
+                ));
+        }
+    }
+}
+
+/// Represents a dialog triggered by clicking a `<input type=date>` element.
+pub struct DatePicker {
+    pub(crate) id: EmbedderControlId,
+    pub(crate) selected_date: Option<DateValue>,
+    pub(crate) position: DeviceIntRect,
+    pub(crate) constellation_proxy: ConstellationProxy,
+    pub(crate) response_sent: bool,
+}
+
+impl DatePicker {
+    /// Return the [`EmbedderControlId`] associated with this element.
+    pub fn id(&self) -> EmbedderControlId {
+        self.id
+    }
+
+    /// Get the area occupied by the `<input>` element that triggered the prompt.
+    ///
+    /// The embedder should use this value to position the prompt that is shown to the user.
+    pub fn position(&self) -> DeviceIntRect {
+        self.position
+    }
+
+    /// Get the date that is currently selected for this [`DatePicker`]. This is initially the
+    /// date selected before the picker was opened.
+    pub fn current_date(&self) -> Option<DateValue> {
+        self.selected_date
+    }
+
+    /// Set the date that will be submitted by [`Self::submit`]. Passing `None` will clear the
+    /// element's value when submitted.
+    pub fn select(&mut self, date: Option<DateValue>) {
+        self.selected_date = date;
+    }
+
+    /// Resolve the prompt with the selection that was previously set by [`Self::select`].
+    /// Submitting without calling [`Self::select`] re-submits the date that was selected when
+    /// the picker was opened.
+    pub fn submit(mut self) {
+        self.response_sent = true;
+        let response = match self.selected_date {
+            Some(date) => DatePickerResponse::Selected(date),
+            None => DatePickerResponse::Cleared,
+        };
+        self.constellation_proxy
+            .send(EmbedderToConstellationMessage::EmbedderControlResponse(
+                self.id,
+                EmbedderControlResponse::DatePicker(response),
+            ));
+    }
+}
+
+impl Drop for DatePicker {
+    fn drop(&mut self) {
+        if !self.response_sent {
+            self.constellation_proxy
+                .send(EmbedderToConstellationMessage::EmbedderControlResponse(
+                    self.id,
+                    EmbedderControlResponse::DatePicker(DatePickerResponse::Dismissed),
                 ));
         }
     }
