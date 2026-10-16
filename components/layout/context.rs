@@ -17,7 +17,7 @@ use net_traits::image_cache::{
 };
 use net_traits::request::InternalRequest;
 use parking_lot::{Mutex, RwLock};
-use pixels::RasterImage;
+use pixels::{GradientMaskRequest, RasterImage};
 use script::layout_dom::ServoLayoutNode;
 use servo_base::id::PainterId;
 use servo_url::{ImmutableOrigin, ServoUrl};
@@ -272,6 +272,13 @@ impl ImageResolver {
                 });
         }
         result
+    }
+
+    pub(crate) fn rasterize_gradient_mask(
+        &self,
+        request: &GradientMaskRequest,
+    ) -> Option<Arc<RasterImage>> {
+        self.image_cache.rasterize_gradient_mask(request)
     }
 
     /// Resolve a cached image to a WebRender [`ImageKey`]

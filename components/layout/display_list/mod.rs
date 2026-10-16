@@ -77,6 +77,7 @@ mod clip;
 mod conversions;
 mod gradient;
 mod hit_test;
+mod mask;
 mod paint_timing_handler;
 mod paint_traversal;
 mod painted_region;
@@ -493,6 +494,20 @@ impl DisplayListBuilder<'_> {
             })
         });
 
+        // WebRender has two different ways of expressing "no clip." ClipChainId::INVALID
+        // should be used for primitives, but `None` is used for stacking contexts and
+        // clip chains. We convert to the `Option<ClipChainId>` representation here. Just
+        // passing Some(ClipChainId::INVALID) causes a panic.
+        let clip_chain_id = match stacking_context.clip_id {
+            ClipId::INVALID => None,
+            clip_id => Some(self.clip_chain_id(clip_id)),
+        };
+
+        // The clip chain that applies the `mask-image` of this stacking context,
+        // if it has one that we support rendering.
+        let mask_clip_chain_id =
+            mask::build_image_mask_clip_chain(self, stacking_context, clip_chain_id);
+
         let primitive_flags;
         let mix_blend_mode;
         let mut filters: Vec<_>;
@@ -519,7 +534,8 @@ impl DisplayListBuilder<'_> {
                     effects.filter.0.is_empty() &&
                     effects.opacity == 1.0 &&
                     effects.mix_blend_mode == ComputedMixBlendMode::Normal &&
-                    style.get_svg().clip_path == ComputedClipPath::None
+                    style.get_svg().clip_path == ComputedClipPath::None &&
+                    mask_clip_chain_id.is_none()
                 {
                     return false;
                 }
@@ -553,20 +569,12 @@ impl DisplayListBuilder<'_> {
             stacking_context_flags.insert(StackingContextFlags::IS_BLEND_CONTAINER);
         }
 
-        // WebRender has two different ways of expressing "no clip." ClipChainId::INVALID
-        // should be used for primitives, but `None` is used for stacking contexts and
-        // clip chains. We convert to the `Option<ClipChainId>` representation here. Just
-        // passing Some(ClipChainId::INVALID) causes a panic.
-        let clip_chain_id = match stacking_context.clip_id {
-            ClipId::INVALID => None,
-            clip_id => Some(self.clip_chain_id(clip_id)),
-        };
         let spatial_id = self.spatial_id(stacking_context.scroll_tree_node_id);
 
         self.wr().push_stacking_context(
             spatial_id,
             primitive_flags,
-            clip_chain_id,
+            mask_clip_chain_id.or(clip_chain_id),
             TransformStyle::Flat,
             mix_blend_mode,
             &filters,

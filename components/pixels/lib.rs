@@ -3,6 +3,7 @@
  * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
 
 mod decoding;
+mod mask;
 mod snapshot;
 
 use std::borrow::Cow;
@@ -18,6 +19,7 @@ use image::{ImageBuffer, ImageFormat, Rgba};
 use log::{debug, error};
 use malloc_size_of_derive::MallocSizeOf;
 use serde::{Deserialize, Serialize};
+pub use mask::*;
 use servo_base::cross_process_instant::CrossProcessInstant;
 use servo_base::generic_channel::GenericSharedMemory;
 pub use snapshot::*;

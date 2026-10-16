@@ -345,6 +345,11 @@ pub(crate) trait ComputedValuesExt {
     fn is_transformable(&self, fragment_flags: FragmentFlags) -> bool;
     fn has_transform_or_perspective_style(&self) -> bool;
     fn has_effective_transform_or_perspective(&self, fragment_flags: FragmentFlags) -> bool;
+    /// The list of mask images of this style, from `mask-image`. Note that a
+    /// computed value of `none` produces a single `Image::None` layer.
+    fn mask_images(&self) -> &[ComputedImageLayer];
+    /// Whether any `mask-image` layer is something other than `none`.
+    fn has_mask_image(&self) -> bool;
     fn z_index_applies(&self, fragment_flags: FragmentFlags) -> bool;
     fn effective_z_index(&self, fragment_flags: FragmentFlags) -> i32;
     fn effective_overflow(&self, fragment_flags: FragmentFlags) -> AxesOverflow;
@@ -582,6 +587,16 @@ impl ComputedValuesExt for ComputedValues {
         self.is_transformable(fragment_flags) && self.has_transform_or_perspective_style()
     }
 
+    fn mask_images(&self) -> &[ComputedImageLayer] {
+        &self.get_svg().mask_image.0
+    }
+
+    fn has_mask_image(&self) -> bool {
+        self.mask_images()
+            .iter()
+            .any(|image| !matches!(image, ComputedImageLayer::None))
+    }
+
     /// Whether the `z-index` property applies to this fragment.
     fn z_index_applies(&self, fragment_flags: FragmentFlags) -> bool {
         // As per CSS 2 § 9.9.1, `z-index` applies to positioned elements.
@@ -699,7 +714,7 @@ impl ComputedValuesExt for ComputedValues {
         //    used value of the contain property, such as content-visibility:
         //    hidden.
         //
-        // TODO: Support `mask-image`, `mask-border-source`, and `contain`.
+        // TODO: Support `mask-border-source`, and `contain`.
         let effects = self.get_effects();
         let overflow = self.effective_overflow(fragment_flags);
         if !matches!(overflow.x, Overflow::Visible | Overflow::Clip) ||
@@ -709,7 +724,8 @@ impl ComputedValuesExt for ComputedValues {
             !effects.clip.is_auto() ||
             self.get_svg().clip_path != ClipPath::None ||
             self.get_box().isolation == ComputedIsolation::Isolate ||
-            effects.mix_blend_mode != ComputedMixBlendMode::Normal
+            effects.mix_blend_mode != ComputedMixBlendMode::Normal ||
+            self.has_mask_image()
         {
             return ComputedTransformStyle::Flat;
         }
@@ -846,6 +862,13 @@ impl ComputedValuesExt for ComputedValues {
         // > A computed value of other than `none` results in the creation of a stacking context.
         // Note `will-change: clip-path` is handled above by `STACKING_CONTEXT_UNCONDITIONAL`.
         if self.get_svg().clip_path != ClipPath::None {
+            return true;
+        }
+
+        // From <https://www.w3.org/TR/css-masking-1/#the-mask-image>
+        // > A computed value of other than `none` establishes a stacking context.
+        // Note `will-change: mask-image` is handled above by `STACKING_CONTEXT_UNCONDITIONAL`.
+        if self.has_mask_image() {
             return true;
         }
 

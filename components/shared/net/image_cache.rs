@@ -8,7 +8,7 @@ use log::debug;
 use malloc_size_of::{MallocSizeOf, MallocSizeOfOps};
 use malloc_size_of_derive::MallocSizeOf;
 use paint_api::CrossProcessPaintApi;
-use pixels::{CorsStatus, ImageMetadata, RasterImage};
+use pixels::{CorsStatus, GradientMaskRequest, ImageMetadata, RasterImage};
 use profile_traits::mem::Report;
 use resvg::usvg::{Font, fontdb};
 use serde::{Deserialize, Serialize};
@@ -263,6 +263,12 @@ pub trait ImageCache: Sync + Send {
     /// Synchronously get the broken image icon for this [`ImageCache`]. This will
     /// allocate space for this icon and upload it to WebRender.
     fn get_broken_image_icon(&self) -> Option<Arc<RasterImage>>;
+
+    /// Rasterize a CSS gradient used as a `mask-image` into a WebRender image
+    /// mask, caching and registering the result with WebRender. Returns `None`
+    /// when the gradient cannot be rasterized (e.g. it has no color stops or an
+    /// empty size).
+    fn rasterize_gradient_mask(&self, request: &GradientMaskRequest) -> Option<Arc<RasterImage>>;
 
     /// Add a new listener for the given pending image id. If the image is already present,
     /// the responder will still receive the expected response.

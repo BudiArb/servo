@@ -24,7 +24,10 @@ use net_traits::request::CorsSettings;
 use net_traits::{FetchResponseMsg, Metadata, NetworkError};
 use paint_api::{CrossProcessPaintApi, ImageUpdate, SerializableImageData};
 use parking_lot::Mutex;
-use pixels::{CorsStatus, ImageFrame, ImageMetadata, PixelFormat, RasterImage, load_from_memory};
+use pixels::{
+    CorsStatus, GradientMaskRequest, ImageFrame, ImageMetadata, PixelFormat, RasterImage,
+    load_from_memory, rasterize_gradient_mask as rasterize_gradient_mask_pixels,
+};
 use profile_traits::mem::{Report, ReportKind};
 use profile_traits::path;
 use resvg::tiny_skia;
@@ -512,6 +515,11 @@ struct ImageCacheStore {
     /// Maps a pending image id to a set of sizes for which that image was requested
     svg_rasterization_task_store: SvgRasterizationTaskStore,
 
+    /// Gradient masks for `mask-image`, rasterized on demand and cached per
+    /// [`GradientMaskRequest`], which includes the rasterization size.
+    #[conditional_malloc_size_of]
+    gradient_mask_images: FxHashMap<GradientMaskRequest, Arc<RasterImage>>,
+
     /// The [`RasterImage`] used for the broken image icon, initialized lazily, only when necessary.
     #[conditional_malloc_size_of]
     broken_image_icon_image: OnceCell<Option<Arc<RasterImage>>>,
@@ -859,6 +867,7 @@ impl ImageCacheFactory for ImageCacheFactoryImpl {
                 completed_loads: HashMap::new(),
                 vector_images: FxHashMap::default(),
                 rasterized_vector_images: FxHashMap::default(),
+                gradient_mask_images: FxHashMap::default(),
                 broken_image_icon_image: OnceCell::new(),
                 paint_api: paint_api.clone(),
                 pipeline_id,
@@ -1385,6 +1394,50 @@ impl ImageCache for ImageCacheImpl {
             })
             .clone()
     }
+
+    fn rasterize_gradient_mask(&self, request: &GradientMaskRequest) -> Option<Arc<RasterImage>> {
+        let mut store = self.store.lock();
+        if let Some(image) = store.gradient_mask_images.get(request) {
+            return Some(image.clone());
+        }
+
+        let bytes = rasterize_gradient_mask_pixels(request)?;
+        let size = (
+            request.size.width.try_into().ok()?,
+            request.size.height.try_into().ok()?,
+        );
+        let mut image = RasterImage {
+            metadata: ImageMetadata {
+                width: size.0,
+                height: size.1,
+            },
+            format: PixelFormat::BGRA8,
+            frames: vec![ImageFrame {
+                delay: None,
+                byte_range: 0..bytes.len(),
+                width: size.0,
+                height: size.1,
+            }],
+            bytes: Arc::new(bytes),
+            id: None,
+            cors_status: CorsStatus::Safe,
+            load_time: None,
+            is_opaque: false,
+            loop_count: None,
+        };
+        let Some(image_key) = store
+            .paint_api
+            .generate_image_key_blocking(store.webview_id)
+        else {
+            return None;
+        };
+        set_webrender_image_key(&store.paint_api, &mut image, image_key);
+        let image = Arc::new(image);
+        store
+            .gradient_mask_images
+            .insert(request.clone(), image.clone());
+        Some(image)
+    }
 }
 
 impl ImageCacheStore {
@@ -1412,6 +1465,11 @@ impl ImageCacheStore {
                     .and_then(|icon| icon.id)
                     .map(ImageUpdate::DeleteImage),
             )
+            .chain(
+                self.gradient_mask_images
+                    .values()
+                    .filter_map(|image| image.id.map(ImageUpdate::DeleteImage)),
+            )
             .collect();
         if !deletions.is_empty() {
             self.paint_api
@@ -1423,6 +1481,7 @@ impl ImageCacheStore {
         self.completed_loads = Default::default();
         self.vector_images = Default::default();
         self.rasterized_vector_images = Default::default();
+        self.gradient_mask_images = Default::default();
         self.svg_rasterization_task_store = Default::default();
         self.pending_loads = Default::default();
         self.key_cache = Default::default();

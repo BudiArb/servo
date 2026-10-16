@@ -94,6 +94,35 @@ pub(super) fn build_linear(
     gradient_box: Size2D<f32, LayoutPixel>,
     builder: &mut super::DisplayListBuilder,
 ) -> WebRenderGradient {
+    let (start_point, end_point) = linear_gradient_line(line_direction, gradient_box);
+
+    let extend_mode = if flags.contains(GradientFlags::REPEATING) {
+        wr::ExtendMode::Repeat
+    } else {
+        wr::ExtendMode::Clamp
+    };
+
+    let mut color_stops = gradient_items_to_color_stops(
+        style,
+        items,
+        Au::from_f32_px((end_point - start_point).length()),
+    );
+    let stops = create_webrender_stops(&mut color_stops, color_interpolation_method, extend_mode);
+
+    WebRenderGradient::Linear(builder.wr().create_gradient(
+        start_point,
+        end_point,
+        stops,
+        extend_mode,
+    ))
+}
+
+/// The start and end points of the gradient line of a linear gradient in the
+/// given gradient box.
+pub(super) fn linear_gradient_line(
+    line_direction: &LineDirection,
+    gradient_box: Size2D<f32, LayoutPixel>,
+) -> (units::LayoutPoint, units::LayoutPoint) {
     use style::values::specified::position::HorizontalPositionKeyword::*;
     use style::values::specified::position::VerticalPositionKeyword::*;
     use units::LayoutVector2D as Vec2;
@@ -168,25 +197,7 @@ pub(super) fn build_linear(
 
     let half_gradient_line = direction * (gradient_line_length / 2.);
     let center = (gradient_box / 2.).to_vector().to_point();
-    let start_point = center - half_gradient_line;
-    let end_point = center + half_gradient_line;
-
-    let extend_mode = if flags.contains(GradientFlags::REPEATING) {
-        wr::ExtendMode::Repeat
-    } else {
-        wr::ExtendMode::Clamp
-    };
-
-    let mut color_stops =
-        gradient_items_to_color_stops(style, items, Au::from_f32_px(gradient_line_length));
-    let stops = create_webrender_stops(&mut color_stops, color_interpolation_method, extend_mode);
-
-    WebRenderGradient::Linear(builder.wr().create_gradient(
-        start_point,
-        end_point,
-        stops,
-        extend_mode,
-    ))
+    (center - half_gradient_line, center + half_gradient_line)
 }
 
 /// <https://drafts.csswg.org/css-images-3/#radial-gradients>
@@ -201,16 +212,56 @@ pub(super) fn build_radial(
     gradient_box: Size2D<f32, LayoutPixel>,
     builder: &mut super::DisplayListBuilder,
 ) -> WebRenderGradient {
-    let center = units::LayoutPoint::new(
-        center
+    let (center, radii) = radial_gradient_geometry(shape, center, gradient_box);
+
+    // “The gradient line’s starting point is at the center of the gradient,
+    //  and it extends toward the right, with the ending point on the point
+    //  where the gradient line intersects the ending shape.”
+    let gradient_line_length = radii.width;
+
+    let extend_mode = if flags.contains(GradientFlags::REPEATING) {
+        wr::ExtendMode::Repeat
+    } else {
+        wr::ExtendMode::Clamp
+    };
+
+    let mut color_stops =
+        gradient_items_to_color_stops(style, items, Au::from_f32_px(gradient_line_length));
+    let stops = create_webrender_stops(&mut color_stops, color_interpolation_method, extend_mode);
+
+    WebRenderGradient::Radial(builder.wr().create_radial_gradient(
+        center,
+        radii,
+        stops,
+        extend_mode,
+    ))
+}
+
+/// Resolve a `Position` to a point within the given gradient box.
+pub(super) fn resolve_position(
+    position: &Position,
+    gradient_box: Size2D<f32, LayoutPixel>,
+) -> units::LayoutPoint {
+    units::LayoutPoint::new(
+        position
             .horizontal
             .to_used_value(Au::from_f32_px(gradient_box.width))
             .to_f32_px(),
-        center
+        position
             .vertical
             .to_used_value(Au::from_f32_px(gradient_box.height))
             .to_f32_px(),
-    );
+    )
+}
+
+/// The center and the radii of the ending shape of a radial gradient in the
+/// given gradient box.
+pub(super) fn radial_gradient_geometry(
+    shape: &EndingShape,
+    center: &Position,
+    gradient_box: Size2D<f32, LayoutPixel>,
+) -> (units::LayoutPoint, units::LayoutSize) {
+    let center = resolve_position(center, gradient_box);
     let radii = match shape {
         EndingShape::Circle(circle) => {
             let radius = match circle {
@@ -272,27 +323,7 @@ pub(super) fn build_radial(
         units::LayoutVector2D::new(select(left, right), select(top, bottom))
     }
 
-    // “The gradient line’s starting point is at the center of the gradient,
-    //  and it extends toward the right, with the ending point on the point
-    //  where the gradient line intersects the ending shape.”
-    let gradient_line_length = radii.width;
-
-    let extend_mode = if flags.contains(GradientFlags::REPEATING) {
-        wr::ExtendMode::Repeat
-    } else {
-        wr::ExtendMode::Clamp
-    };
-
-    let mut color_stops =
-        gradient_items_to_color_stops(style, items, Au::from_f32_px(gradient_line_length));
-    let stops = create_webrender_stops(&mut color_stops, color_interpolation_method, extend_mode);
-
-    WebRenderGradient::Radial(builder.wr().create_radial_gradient(
-        center,
-        radii,
-        stops,
-        extend_mode,
-    ))
+    (center, radii)
 }
 
 /// <https://drafts.csswg.org/css-images-4/#conic-gradients>
@@ -307,16 +338,7 @@ fn build_conic(
     gradient_box: Size2D<f32, LayoutPixel>,
     builder: &mut super::DisplayListBuilder<'_>,
 ) -> WebRenderGradient {
-    let center = units::LayoutPoint::new(
-        center
-            .horizontal
-            .to_used_value(Au::from_f32_px(gradient_box.width))
-            .to_f32_px(),
-        center
-            .vertical
-            .to_used_value(Au::from_f32_px(gradient_box.height))
-            .to_f32_px(),
-    );
+    let center = resolve_position(center, gradient_box);
 
     let extend_mode = if flags.contains(GradientFlags::REPEATING) {
         wr::ExtendMode::Repeat
@@ -335,7 +357,7 @@ fn build_conic(
     ))
 }
 
-fn conic_gradient_items_to_color_stops(
+pub(super) fn conic_gradient_items_to_color_stops(
     style: &ComputedValues,
     items: &[GradientItem<Color, AngleOrPercentage>],
 ) -> Vec<ColorStop<AbsoluteColor, f32>> {
@@ -372,7 +394,7 @@ fn conic_gradient_items_to_color_stops(
         .collect()
 }
 
-fn gradient_items_to_color_stops(
+pub(super) fn gradient_items_to_color_stops(
     style: &ComputedValues,
     items: &[GradientItem<Color, LengthPercentage>],
     gradient_line_length: Au,
@@ -412,7 +434,7 @@ fn gradient_items_to_color_stops(
         .collect()
 }
 
-fn create_webrender_stops(
+pub(super) fn create_webrender_stops(
     stops: &mut [ColorStop<AbsoluteColor, f32>],
     interpolation_method: &ColorInterpolationMethod,
     extend_mode: ExtendMode,
